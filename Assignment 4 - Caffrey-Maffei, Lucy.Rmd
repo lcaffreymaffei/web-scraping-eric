@@ -1,0 +1,222 @@
+---
+title: 'EDUC 423A/SOC 302A: Assignment 4'
+author: "Lucy Caffrey-Maffei"
+date: "`r lubridate::today()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Honor Code Statement
+
+We strongly encourage students to form study groups and students may discuss and work on assignments in groups. We expect that each student understands their own submission. As such, students must write their submissions independently and clearly disclose the names of all other students who were part of their study group. Additionally, lifting code or solutions directly from the internet (e.g., Google, GitHub, Stack Overflow) is a violation of the [Stanford Honor Code](https://communitystandards.stanford.edu/policies-and-guidance/honor-code). We take academic honesty and Honor Code violations extremely seriously and expect the same of students. If you have questions about what may or may not constitute an Honor Code violation, please reach out the teaching team.
+
+**Email:** [l.caffreymaffei\@stanford.edu](mailto:l.caffreymaffei@stanford.edu){.email}
+
+**SUID:** lacm23/06527423
+
+**Study Group:** Laura Hinton
+
+I acknowledge and agree to abide by the Honor Code.
+
+**Signed:** Lucy Caffrey-Maffei
+
+# Scraping data
+
+1.  **Include all your code for scraping the data with the ERIC API in the chunk below**
+
+```{r retrieve data, echo=TRUE}
+##loading packages
+library(educationdata) 
+library(rvest)
+library(httr)
+library(RJSONIO) 
+library(tidyverse) 
+library(xml2) 
+library(janitor) 
+library(robotstxt) 
+library(rlist)
+library(tidyselect)
+library(naniar)
+library(visdat)
+
+##downloading json from api
+
+url <- "https://api.ies.ed.gov/eric/?search=subject%3A%E2%80%9CData%20Science%E2%80%9D&format=json&rows=200"
+
+my_user_agent <- "l.caffreymaffei@stanford.edu conducting API search for a project at Stanford University"
+
+eric_json <- GET(url, user_agent(my_user_agent)) 
+
+
+eric_text <- fromJSON(content(eric_json, as = "text"))
+
+
+##making 3 different tibbles for wanted variables
+
+eric_values1 <- eric_text$response$docs |> 
+  list.select(id, title, publicationdateyear, peerreviewed, description)
+
+eric_structure1 <- as_tibble(list.stack(eric_values1))
+
+eric_values2 <- eric_text$response$docs |> 
+  list.select(id, author)
+
+eric_structure2 <- as_tibble(list.stack(eric_values2))
+
+eric_values3 <- eric_text$response$docs |> 
+  list.select(id, subject)
+
+eric_structure3 <- as_tibble(list.stack(eric_values3))
+
+##joining dataframes into long tibble --> see next section for long version of tibble
+
+eric_merge1 <- inner_join(eric_structure1, eric_structure2)
+eric_long <- inner_join(eric_merge1, eric_structure3)
+
+eric_long$publicationdateyear <- as.character(eric_long$publicationdateyear)
+
+eric_long[eric_long ==""] <- NA_character_
+
+eric_long
+```
+
+2.  **What is a question you would be able to pursue with the database you have now (ignore that you are working with just a sample)? Create one visualization that speaks to your question.**
+
+```{r explore your question}
+##Has data science become more prevalent in education research over the years?"
+
+##grouping and reshaping tibble into wide format for visualization 1
+
+eric <- eric_long |>
+  group_by(id, title, publicationdateyear, peerreviewed, description, subject) |>
+  mutate(n_author = str_c("author", 
+                              row_number_bygroup = 1:n(), 
+                              sep = "_")) |>
+pivot_wider(id_cols = c(id, title, publicationdateyear, peerreviewed, description, subject), 
+              names_from = n_author, 
+              values_from = author) |>
+  group_by(id, title, publicationdateyear, peerreviewed, description, author_1, author_2, author_3, author_4, author_5, author_6, author_7) |>
+  mutate(n_subject = str_c("subject", 
+                              row_number_bygroup = 1:n(), 
+                              sep = "_")) |>
+pivot_wider(id_cols = c(id, title, publicationdateyear, peerreviewed, description, author_1, author_2, author_3, author_4, author_5, author_6, author_7), 
+              names_from = n_subject, 
+              values_from = subject) |>
+  rename(year = publicationdateyear) |>
+  arrange(year) |>
+  ungroup()
+  
+
+unique(eric$year)
+
+
+eric[eric ==""] <- NA_character_
+
+eric <- eric |>
+  mutate(decade = year) |>
+  mutate(decade = str_replace_all(decade, "^196\\d", "1960s")) |>
+  mutate(decade = str_replace_all(decade, "^197\\d", "1970s"))|>
+  mutate(decade = str_replace_all(decade, "^198\\d", "1980s"))|>
+  mutate(decade = str_replace_all(decade, "^199\\d", "1990s"))|>
+  mutate(decade = str_replace_all(decade, "^200\\d", "2000s"))|>
+  mutate(decade = str_replace_all(decade, "^201\\d", "2010s"))|>
+  mutate(decade = str_replace_all(decade, "^202\\d", "2020s")) |>
+  unite("subject", subject_1:subject_2:subject_3:subject_4:subject_5:subject_6:subject_7:subject_8:subject_9:subject_10:subject_11:subject_12:subject_13:subject_14:subject_15, 
+        sep = "; ", 
+        na.rm = TRUE, 
+        remove = TRUE)  |>
+  unite("author", author_1:author_2:author_3:author_4:author_5:author_6:author_7,
+        sep = "; ",
+        na.rm = TRUE,
+        remove = TRUE)
+
+eric[eric ==""] <- NA_character_
+  
+eric
+
+##visualization of "Has discussion of data science methods become more prevalent in education research over the years?"
+
+ggplot(eric)+
+  geom_bar(aes(x = decade)) +
+  labs(title = "Data Science Mentions in Education Research over Time",
+       x = "Decade",
+       y = " Data Science Mentions in Education Research",
+       subtitle = "Source: Educational Resources Information Center (ERIC)") +
+  theme_classic() +
+  theme(axis.text.x = element_text(color = "gray26", size = 10),
+        plot.title = element_text(color = "gray26", size = 16),
+        axis.text.y = element_text(color = "gray26", size = 10),
+        axis.title.x = element_text(color = "gray26", size = 12),
+        axis.title.y = element_text(color = "gray26", size = 12),
+        legend.text=element_text(color ="gray26", size = 9),
+        legend.title = element_text(color ="gray26", size = 12)) 
+
+
+```
+
+3.  **Discuss why you chose your question and how the database might inform you of it. Reflect how answering your question with scraped data from ERIC differs from traditional data collection methods.**
+
+Technology has rapidly developed leading up to and throughout the 21st century, with the discipline of data science seeing particular growth in recent years. Although perhaps traditionally thought of as related to non-social, for-profit, business enterprises, data science has been increasingly seen used in the field of education, both on the applied/pedagogical side and on the administrative/policy/research side. Understanding its gradual incorporation into the education world is important to understanding the evolution of our understanding of best practices and methods for studying and actualizing the maximization of student learning. A resource like the Educational Resources Information Center (ERIC), which contains education-related research from a variety of sources, affords us a picture of what topics and methods are most salient in the education world by being able to query records based on key words. As each publication on the site also includes a publication date, we are able to understand how that picture has developed over time. Compiling this data into an analyzable format allows me to answer the question: has data science become more prevalent in education research over time?
+
+Surprisingly, I find that data science use in education research has not experienced constant growth in the past 60 years. Rather, although it is more prevalent in research after the turn of the 21st century as compared to the 1960s, for example, its peak was in the 1970s.
+
+Nevertheless, gathering this scraped data from ERIC allows us to answer an interesting research question that perhaps would not have been answerable with traditionally pre-made, available data sets. In part, that is due to the nature of the data set being used in the present study, which contains data about data/studies. Most data sets traditionally used in social science research contain person- or group-level observations of data points related to those persons or groups, gathered from primary sources. The present data set goes a step above that and contains data about the evidence produced from that social science research. In this way, using scraped data allows me, as a researcher, more flexibility in potential areas of study, as I am less limited by the work of others because I do not have to rely anyone else to make a data set with the specific variables I need. In that same way, I am less limited by money (there is no API fee with ERIC), of which much is needed to create data sets in the traditional way.
+
+One down-side to this method of data collection is that it is not as accessible to the entire data analysis community, since it requires more advanced data science methods that may require some background or training. In this way, this manner of data collection may limit readers' ability to reproduce the work, and, therefore, criticize, respond, or verify the researcher's work.
+
+\newpage
+
+# **Missing data**
+
+**Work on this part of the assignment after Week 9 Class 2.**
+
+1.  **Visualize the degree of missing values in the entire dataset.**
+
+```{r missingness in dataset, echo=TRUE}
+
+## 2 visualization of missing values in wide tibble
+
+##visualization 1
+eric |>
+  vis_miss(cluster = TRUE,
+           sort_miss = TRUE) +
+  labs(title = "Percent of Variables' Observations with Missing Values",
+       subtitle = "Source: Educational Resources Information Center (ERIC)")
+
+##visualization 2
+gg_miss_var(eric,
+            show_pct = TRUE) +
+  labs(title = "Percent of Variables' Observations with Missing Values",
+       subtitle = "Source: Educational Resources Information Center (ERIC)") +
+  theme_classic()
+```
+
+2.  **Focus on the "description" field and think about the question why some records have missing data for the "description" field. Examine at least one potential explanation for missing value patterns by plotting missingness in the "description" field with another variable.**
+
+```{r missing values description, echo=TRUE}
+
+eric_sample <- eric|>
+  select(description, peerreviewed) |>
+  mutate(peerreviewed = str_replace(peerreviewed,"T","True"),
+         peerreviewed = str_replace(peerreviewed,"F","False")) 
+
+gg_miss_fct(eric_sample, peerreviewed) +
+  labs(title = "Percent of Description Observation with Missing Values\nby Research Paper Peer Review Status",
+       subtitle = "Source: Educational Resources Information Center (ERIC)",
+       x = "Peer Reviewed?",
+       y ="") 
+```
+
+3.  **Discuss: If you were doing a study with the description field (e.g., how do education researchers talk about data science in their publications"), how would you approach the issue of missing data in the description field?**
+
+The visualizations above show that publications that are *not* peer-reviewed are less likely to have descriptions. If conducting a study of education research based on their description field, that group of researchers would be largely excluded from the sample population. Although one could argue that peer-reviewed papers are more valuable research, it is important to consider that going through a peer-review process takes money, social capital, time---luxuries that not all people wanting to contribute to the field of education have. Excluding them from the study would, therefore, give greater voice to persons whose career is specifically in education research (perhaps academics) and less to people who, for example, work in the industry. In this way, the study may not accurately capture the way or extent to which data science is used every day in education.
+
+If I were limited to using data from ERIC to conduct the hypothetical study, I could caution about this caveat in the publication's limitations section, explaining that the study may not be generalizable to the entire education community. I could also use other data science methods--like NLP, for example---to create a description for studies that lack one, which would allow me to include them in the sample. Of course, this would have to be included in the limitations section as well.
+
+If I were able to use additional data sources outside of ERIC, however, I could also scrape education research data from other publication databases---including some that are strictly non-peer-review---and join them together to create a master data set. With that data set, I would have a more accurate representation of what all education-minded individuals are focusing on.
